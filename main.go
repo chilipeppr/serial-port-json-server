@@ -314,7 +314,7 @@ const homeTemplateHtml = `<!DOCTYPE html>
     });
 
     if (window["WebSocket"]) {
-        conn = new WebSocket("ws://{{$}}/ws");
+        conn = new WebSocket("wss://{{$}}/ws");
         conn.onclose = function(evt) {
             appendLog($("<div><b>Connection closed.</b></div>"))
         }
