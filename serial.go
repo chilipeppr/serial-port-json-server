@@ -36,10 +36,11 @@ type writeRequestJson struct {
 }
 
 type writeRequestJsonData struct {
-	D     string
-	Id    string
-	Buf   string
-	Pause int
+	D      string
+	Id     string
+	Buf    string
+	Pause  int
+	Base64 bool
 }
 
 type qReportJson struct {
@@ -50,11 +51,12 @@ type qReportJson struct {
 }
 
 type qReportJsonData struct {
-	D     string
-	Id    string
-	Buf   string `json:"-"`
-	Parts int    `json:"-"`
-	Pause int
+	D      string
+	Id     string
+	Buf    string `json:"-"`
+	Parts  int    `json:"-"`
+	Pause  int
+	Base64 bool
 }
 
 type qReport struct {
@@ -205,6 +207,7 @@ func writeJson(wrj writeRequestJson) {
 			// when a user sends in multiple lines in one command and we break it apart,
 			// just assume that the pause will be the same on subsequent lines
 			qrd.Pause = cmdJson.Pause
+			qrd.Base64 = cmdJson.Base64
 
 			qReportDataArr = append(qReportDataArr, qrd)
 
@@ -228,7 +231,7 @@ func writeJson(wrj writeRequestJson) {
 		if qrd.Buf == "Buf" {
 
 			//log.Println("Json sending to wr.p.sendBuffered")
-			wrj.p.sendBuffered <- Cmd{qrd.D, qrd.Id, false, false, qrd.Pause}
+			wrj.p.sendBuffered <- Cmd{qrd.D, qrd.Id, false, false, qrd.Pause, qrd.Base64}
 
 		} else {
 			//log.Println("Json sending to wr.p.sendNoBuf")
@@ -240,7 +243,7 @@ func writeJson(wrj writeRequestJson) {
 				log.Printf("The serial data got rewritten on a NoBuf cmd. new cmd:%v", qrd.D)
 			}
 
-			wrj.p.sendNoBuf <- Cmd{qrd.D, qrd.Id, true, false, qrd.Pause}
+			wrj.p.sendNoBuf <- Cmd{qrd.D, qrd.Id, true, false, qrd.Pause, qrd.Base64}
 		}
 	}
 
@@ -273,7 +276,7 @@ func write(wr writeRequest, id string) {
 		cmdId := idArr[index]
 		if bufTypeArr[index] == "Buf" {
 			//log.Println("Send was normal send, so sending to wr.p.sendBuffered")
-			wr.p.sendBuffered <- Cmd{cmdToSendToChannel, cmdId, false, false, 0}
+			wr.p.sendBuffered <- Cmd{cmdToSendToChannel, cmdId, false, false, 0, false}
 		} else {
 			//log.Println("Send was sendnobuf, so sending to wr.p.sendNoBuf")
 			// Need to see if we should rewrite the serial command though
@@ -282,7 +285,7 @@ func write(wr writeRequest, id string) {
 				cmdToSendToChannel = newCmd
 				log.Printf("The serial data got rewritten on a NoBuf. new cmd:%v", cmdToSendToChannel)
 			}
-			wr.p.sendNoBuf <- Cmd{cmdToSendToChannel, cmdId, true, false, 0}
+			wr.p.sendNoBuf <- Cmd{cmdToSendToChannel, cmdId, true, false, 0, false}
 		}
 	}
 
