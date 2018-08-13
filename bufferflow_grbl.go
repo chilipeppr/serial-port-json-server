@@ -47,6 +47,10 @@ func (b *BufferflowGrbl) Init() {
 
 	log.Println("Initting GRBL buffer flow")
 	// b.BufferMax = 127 //max buffer size 127 bytes available
+	// Matt: buffer size is different (256) on Arduino Mega and could be even larger
+	//   on other MCUs. Starting with grbl 1.1f, the '$I' command will return the 
+	//   buffer size in the status. We could update the size programmatically, which
+	//   would help grbl to run smoother.
 	b.BufferMax = 125 // changed to be safe with extra chars
 
 	b.q = NewQueue()
