@@ -34,11 +34,12 @@ type BufferflowGrbl struct {
 	initline  *regexp.Regexp
 	qry       *regexp.Regexp
 	rpt       *regexp.Regexp
+	opt       *regexp.Regexp
 }
 
 type DataCmdError struct {
 	DataCmdComplete
-	ErrorCode	string
+	ErrorCode string
 }
 
 func (b *BufferflowGrbl) Init() {
@@ -48,19 +49,14 @@ func (b *BufferflowGrbl) Init() {
 	log.Println("Initting GRBL buffer flow")
 	// b.BufferMax = 127 //max buffer size 127 bytes available
 	// Matt: buffer size is different (255) on Arduino Mega and could be even larger
-	//   on other MCUs. Starting with grbl 1.1f, the '$I' command will return the 
-	//   buffer size in the status. We could update the size programmatically, which
-	//   would help grbl to run smoother.
+	//   	on other MCUs. Starting with grbl 1.1f, the '$I' command will return the
+	//   	buffer size in the status. We update the buffer size programmatically, which
+	//   	helps grbl to run smoother.
 	//
-	//   '$I' returns [VER:1.1d.20161014:Some string]\n[OPT:VL,15,128]\nok
-	//   where the number after the second comme is the RX Buffer size
-	//
-	// 	 We could send '$I' after receiving the 'b.initline' string, and then have 
-	//   the '$I' reply as another reply patter. 
-	//
-	//   Also, '$I=xxx' could be used on older grbl 1.1 to add buffer size information manually
+	//   	Sending '$I' after grbl send the initline returns
+	//		"[VER:1.1d.20161014:zzz]\n[OPT:VL,15,128]\nok\n"
+	//   	where the number after the second comme is the RX Buffer size
 	b.BufferMax = 120 // changed to be safe with extra chars, grbl developers recommend 120
-	//b.BufferMax = 248 // grbl Mega
 
 	b.q = NewQueue()
 
@@ -74,6 +70,7 @@ func (b *BufferflowGrbl) Init() {
 	b.initline, _ = regexp.Compile("^Grbl")
 	b.qry, _ = regexp.Compile("\\?")
 	b.rpt, _ = regexp.Compile("^<")
+	b.opt, _ = regexp.Compile("^\\[OPT:\\w*,\\d*,(?P<buffersize>\\d*)\\]")
 
 	//initialize query loop
 	b.rptQueryLoop(b.parent_serport)
@@ -207,6 +204,11 @@ func (b *BufferflowGrbl) OnIncomingData(data string) {
 
 			b.version = element //save element in version
 
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				spWriteJson("sendjson {\"P\":\"" + b.parent_serport.portConf.Name + "\",\"Data\":[{\"D\":\"" + "$I\\n\", \"Id\":\"options\"}]}")
+			}()
+
 			//Check for report output, compare to last report output, if different return to client to update status; otherwise ignore status.
 		} else if b.rpt.MatchString(element) {
 			if element == b.LastStatus {
@@ -215,6 +217,37 @@ func (b *BufferflowGrbl) OnIncomingData(data string) {
 			}
 
 			b.LastStatus = element //if we make it here something has changed with the status string and laststatus needs updating
+		} else if b.opt.MatchString(element) {
+			log.Println("Grbl OPT: message found")
+			// extract integer after the second comma, if the format fits: '[OPT:VL,15,128]'
+			optInfo := b.opt.FindStringSubmatch(element)
+			// the returned array has two elements: the first match and the sub-match named <buffersize>
+			if len(optInfo) == 2 {
+				newBufferSize, err := strconv.Atoi(optInfo[1])
+				// make sure that the buffer size is plausible
+				if err == nil {
+					log.Printf("          requested buffer size is %v-7 byte\n", newBufferSize)
+					if newBufferSize >= 127 {
+						if newBufferSize <= 65536 {
+							if b.BufferMax != newBufferSize-7 {
+								b.BufferMax = newBufferSize - 7
+								log.Printf("          changing buffer size to %v bytes\n", b.BufferMax)
+							} else {
+								log.Println("          ok")
+							}
+						} else {
+							log.Println("          but the buffer size seems too large")
+						}
+					} else {
+						log.Println("          but the buffer size seems too small")
+					}
+				} else {
+					log.Println("          but the buffer size is not a number (expecting grbl 1.1f compat format)")
+				}
+			} else {
+				log.Println("          but the format is not supported (expecting grbl 1.1f compat format)")
+			}
+
 		}
 
 		// handle communication back to client
@@ -269,15 +302,15 @@ func (b *BufferflowGrbl) BreakApartCommands(cmd string) []string {
 		item = regexp.MustCompile(";.*").ReplaceAllString(item, "")
 		item = strings.Replace(item, " ", "", -1)
 
-		if len(item) > utf8.RuneCountInString(item) {	// If item contains UTF-8 chars other than ASCII. Extended ASCII must be extracted from UTF8 code point
-			r := []rune(item)			// Note : Extended ASCII are used for some realtime commands
+		if len(item) > utf8.RuneCountInString(item) { // If item contains UTF-8 chars other than ASCII. Extended ASCII must be extracted from UTF8 code point
+			r := []rune(item) // Note : Extended ASCII are used for some realtime commands
 			a := make([]byte, len(r))
 			for idx, element := range r {
 				a[idx] = byte(element)
-        		}
+			}
 			item = string(a)
 		}
-		
+
 		if item == "*init*" { //return init string to update grbl widget when already connected to grbl
 			m := DataPerLine{b.Port, b.version + "\n"}
 			bm, err := json.Marshal(m)
@@ -290,7 +323,7 @@ func (b *BufferflowGrbl) BreakApartCommands(cmd string) []string {
 			if err == nil {
 				h.broadcastSys <- bm
 			}
-		} else if b.SeeIfSpecificCommandsShouldSkipBuffer(item) {	// realtime commands don't need '\n'
+		} else if b.SeeIfSpecificCommandsShouldSkipBuffer(item) { // realtime commands don't need '\n'
 			log.Printf("Query added without newline: %q\n", item)
 			finalCmds = append(finalCmds, item) //append query request without newline character
 		} else if item == "%" {
@@ -324,15 +357,15 @@ func (b *BufferflowGrbl) Unpause() {
 }
 
 func (b *BufferflowGrbl) SeeIfSpecificCommandsShouldSkipBuffer(cmd string) bool {
-	if len(cmd) != 1 {		// Skip buffer commands (=realtime commands) are always single byte
+	if len(cmd) != 1 { // Skip buffer commands (=realtime commands) are always single byte
 		return false
 	}
-	c := cmd[0]				// Extract ASCII code
-	return c == '!' || c == '~' || c == '?' || c == 0x18 || c >= 0x80 
+	c := cmd[0] // Extract ASCII code
+	return c == '!' || c == '~' || c == '?' || c == 0x18 || c >= 0x80
 	// remove comments
 	//cmd = regexp.MustCompile("\\(.*?\\)").ReplaceAllString(cmd, "")
 	//cmd = regexp.MustCompile(";.*").ReplaceAllString(cmd, "")
-	// adding some new regexp to match real-time commands for grbl 1 version 
+	// adding some new regexp to match real-time commands for grbl 1 version
 	//if match, _ := regexp.MatchString("[!~\\?]|(\u0018)|[\u0080-\u00FF]", cmd); match {
 	//	log.Printf("Found cmd that should skip buffer. cmd:%q\n", cmd)
 	//	return true
@@ -348,7 +381,7 @@ func (b *BufferflowGrbl) SeeIfSpecificCommandsShouldPauseBuffer(cmd string) bool
 	//	log.Printf("Found cmd that should pause buffer. cmd:%v\n", cmd)
 	//	return true
 	//}
-	return false	// No command should stop the transmission
+	return false // No command should stop the transmission
 }
 
 func (b *BufferflowGrbl) SeeIfSpecificCommandsShouldUnpauseBuffer(cmd string) bool {
@@ -359,7 +392,7 @@ func (b *BufferflowGrbl) SeeIfSpecificCommandsShouldUnpauseBuffer(cmd string) bo
 	//	log.Printf("Found cmd that should unpause buffer. cmd:%v\n", cmd)
 	//	return true
 	//}
-	return false	// No command should stop the transmission
+	return false // No command should stop the transmission
 }
 
 func (b *BufferflowGrbl) SeeIfSpecificCommandsShouldWipeBuffer(cmd string) bool {
@@ -414,7 +447,7 @@ func (b *BufferflowGrbl) rptQueryLoop(p *serport) {
 	b.quit = make(chan int)
 	go func() {
 		// wait five seconds for GRBL to but up before slamming it with status requests
-		duration := time.Duration(5)*time.Second
+		duration := time.Duration(5) * time.Second
 		time.Sleep(duration)
 		ticker := time.NewTicker(500 * time.Millisecond)
 		for {
