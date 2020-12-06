@@ -31,7 +31,7 @@ type BufferflowNodeMcu struct {
 }
 
 func (b *BufferflowNodeMcu) Init() {
-	log.Println("Initting timed buffer flow (output once every 16ms)")
+	log.Println("Initting NodeMcu buffer flow")
 	b.bufferedOutput = ""
 	b.IsOpen = true
 	b.reNewLine, _ = regexp.Compile("\\r{0,1}\\n")
@@ -177,21 +177,6 @@ func (b *BufferflowNodeMcu) Init() {
 
 		}
 	}()
-
-	/*
-		go func() {
-			b.ticker = time.NewTicker(16 * time.Millisecond)
-			for _ = range b.ticker.C {
-				if b.bufferedOutput != "" {
-					m := SpPortMessage{b.Port, b.bufferedOutput}
-					buf, _ := json.Marshal(m)
-					b.Output <- []byte(buf)
-					//log.Println(buf)
-					b.bufferedOutput = ""
-				}
-			}
-		}()
-	*/
 
 }
 

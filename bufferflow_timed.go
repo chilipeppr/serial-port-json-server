@@ -16,12 +16,6 @@ type BufferflowTimed struct {
 	bufferedOutput string
 }
 
-/*
-var (
-	bufferedOutput string
-)
-*/
-
 func (b *BufferflowTimed) Init() {
 	log.Println("Initting timed buffer flow (output once every 16ms)")
 	b.bufferedOutput = ""
